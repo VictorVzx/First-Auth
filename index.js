@@ -3,6 +3,7 @@ const {
   GatewayIntentBits,
   SlashCommandBuilder,
   PermissionsBitField,
+  EmbedBuilder,
 } = require("discord.js");
 const dotenv = require("dotenv");
 
@@ -11,6 +12,8 @@ dotenv.config();
 const CONFIG = {
   verifiedRoleId: process.env.VERIFIED_ROLE_ID || "1469057010069672027",
   unverifyRoleId: process.env.UNVERIFY_ROLE_ID || "1469076386538066002",
+  verificationLogChannelId:
+    process.env.VERIFICATION_LOG_CHANNEL_ID || "1469136433661870151",
   token: process.env.BOT_TOKEN,
 };
 
@@ -288,6 +291,41 @@ async function removeUnverifyWithDiagnostics(guild, member, reason) {
   }
 }
 
+async function sendVerificationSuccessLog(guild, member, role) {
+  const logChannel = await guild.channels
+    .fetch(CONFIG.verificationLogChannelId)
+    .catch(() => null);
+
+  if (!logChannel || !logChannel.isTextBased()) {
+    console.warn(
+      `[WARN] Canal de log de verificação inválido: ${CONFIG.verificationLogChannelId}`,
+    );
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(0x00ff66)
+    .setTitle("Verification Success")
+    .addFields(
+      { name: "User:", value: `<@${member.id}>\n(${member.id})` },
+      {
+        name: "Role Added:",
+        value: role ? `<@&${role.id}>` : `<@&${CONFIG.verifiedRoleId}>`,
+      },
+    )
+    .setThumbnail(member.displayAvatarURL({ size: 256 }))
+    .setFooter({ text: "First Store Verification" });
+
+  await logChannel
+    .send({
+      embeds: [embed],
+      allowedMentions: { parse: [] },
+    })
+    .catch((error) => {
+      console.error("[ERRO] Falha ao enviar log de verificação:", error);
+    });
+}
+
 async function verifyMemberWithDiagnostics(guild, member) {
   const verifiedResult = await addVerifiedWithDiagnostics(
     guild,
@@ -518,8 +556,16 @@ async function handleGuildMemberUpdate(oldMember, newMember) {
     !oldMember.roles.cache.has(CONFIG.verifiedRoleId) &&
     newMember.roles.cache.has(CONFIG.verifiedRoleId);
 
+  if (!gainedVerified) return;
+
+  const verifiedRole =
+    newMember.roles.cache.get(CONFIG.verifiedRoleId) ||
+    (await newMember.guild.roles.fetch(CONFIG.verifiedRoleId).catch(() => null));
+
+  await sendVerificationSuccessLog(newMember.guild, newMember, verifiedRole);
+
   const hasUnverify = newMember.roles.cache.has(CONFIG.unverifyRoleId);
-  if (!gainedVerified || !hasUnverify) return;
+  if (!hasUnverify) return;
 
   const unverifyRemoval = await removeUnverifyWithDiagnostics(
     newMember.guild,
